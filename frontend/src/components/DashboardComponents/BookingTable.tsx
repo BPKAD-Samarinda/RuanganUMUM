@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { ChevronLeft, ChevronRight, Check, Calendar, MapPin, Clock, User, Users } from "lucide-react"
 import ConfirmModal from "./ConfirmModal"
 import Toast from "./Toast"
+import { authFetch } from "../../lib/api"
 
 interface Props {
 statusFilter:string
@@ -15,7 +16,7 @@ selectedAgenda: any | null
 setSelectedAgenda: (agenda: any | null) => void
 }
 
-const AgendaCard = ({ item, index, realIndex, type, isSelected, onClick, onStatusChange, onConfirmStatus, currentStatus, statusColor }: any) => {
+const AgendaCard = ({ item, realIndex, type, isSelected, onClick, onStatusChange, onConfirmStatus, currentStatus, statusColor }: any) => {
   return (
     <div 
       onClick={onClick}
@@ -149,7 +150,7 @@ const startPemkot=(pemkotPage-1)*rowsPerPage
 const currentPemkot=filteredPemkot.slice(startPemkot, startPemkot+rowsPerPage)
 const totalPemkotPage=Math.ceil(filteredPemkot.length/rowsPerPage)
 
-const [confirmModal,setConfirmModal]=useState({ open:false, type:"", index:-1, status:"" })
+const [confirmModal,setConfirmModal]=useState({ open:false, type:"", agendaId:-1, status:"" })
 const [toast,setToast]=useState({ show:false, message:"" })
 
 const handleRowClick = (item: any) => {
@@ -157,46 +158,55 @@ const handleRowClick = (item: any) => {
   else setSelectedAgenda(item)
 }
 
-const changeStatus=(type: 'bpkad' | 'pemkot', index: number, dir: 'left' | 'right') => {
+const changeStatus=(type: 'bpkad' | 'pemkot', agendaId: number, dir: 'left' | 'right') => {
   const isBpkad = type === 'bpkad'
+  const data = isBpkad ? bpkadData : pemkotData
   const state = isBpkad ? tempStatus : tempPemkotStatus
   const setter = isBpkad ? setTempStatus : setTempPemkotStatus
-  const offset = isBpkad ? startBpkad : startPemkot
-  
-  const realIndex = offset + index
-  const currentIdx = statuses.indexOf(state[realIndex])
+  const dataIndex = data.findIndex((d:any) => d.id === agendaId)
+  if (dataIndex === -1) return
+
+  const currentIdx = statuses.indexOf(state[dataIndex])
   let newIdx = currentIdx
   
   if(dir==="left" && currentIdx > 0) newIdx--
   if(dir==="right" && currentIdx < statuses.length - 1) newIdx++
   
   const newState = [...state]
-  newState[realIndex] = statuses[newIdx]
+  newState[dataIndex] = statuses[newIdx]
   setter(newState)
 }
 
-const confirmStatusChange=(type:string, index:number) => {
+const confirmStatusChange=(type:string, agendaId:number) => {
   const isBpkad = type === "bpkad"
-  const offset = isBpkad ? startBpkad : startPemkot
-  const realIndex = offset + index
-  const statusBaru = isBpkad ? tempStatus[realIndex] : tempPemkotStatus[realIndex]
+  const data = isBpkad ? bpkadData : pemkotData
+  const dataIndex = data.findIndex((d:any) => d.id === agendaId)
+  if (dataIndex === -1) return
+  const statusBaru = isBpkad ? tempStatus[dataIndex] : tempPemkotStatus[dataIndex]
 
   setConfirmModal({
     open:true,
     type,
-    index: realIndex,
+    agendaId,
     status: statusBaru
   })
 }
 
 const applyStatusChange=async ()=>{
-  const {type, index, status} = confirmModal;
-  const targetData = type === "bpkad" ? bpkadData[index] : pemkotData[index];
+  const {type, agendaId, status} = confirmModal;
+  const sourceData = type === "bpkad" ? bpkadData : pemkotData
+  const index = sourceData.findIndex((d:any) => d.id === agendaId)
+  if (index === -1) {
+    setConfirmModal({...confirmModal, open:false})
+    setToast({ show:true, message: "Data tidak ditemukan" })
+    setTimeout(()=>setToast({show:false,message:""}), 2000)
+    return
+  }
+  const targetData = sourceData[index];
 
   try {
-    const response = await fetch(`http://localhost:5000/api/agendas/${targetData.id}/status`, {
+    const response = await authFetch(`/api/agendas/${targetData.id}/status`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status }),
     });
 
@@ -261,13 +271,12 @@ return (
             <AgendaCard 
               key={item.id}
               item={item}
-              index={index}
               realIndex={startBpkad + index}
               type="bpkad"
               isSelected={selectedAgenda?.id === item.id}
               onClick={() => handleRowClick(item)}
-              onStatusChange={(dir: any) => changeStatus('bpkad', index, dir)}
-              onConfirmStatus={() => confirmStatusChange('bpkad', index)}
+              onStatusChange={(dir: any) => changeStatus('bpkad', item.id, dir)}
+              onConfirmStatus={() => confirmStatusChange('bpkad', item.id)}
               currentStatus={tempStatus[startBpkad + index]}
               statusColor={statusColor}
             />
@@ -313,12 +322,12 @@ return (
                     <td className="p-4 text-center font-medium text-xs text-gray-500">{item.pelaksana}</td>
                     <td className="p-4">
                       <div className="flex items-center justify-center gap-1.5 focus-within:ring-2">
-                        <button onClick={(e)=>{e.stopPropagation(); changeStatus('bpkad', index, 'left')}} className="p-1 border border-gray-200 rounded-md bg-white hover:bg-gray-50"><ChevronLeft size={14}/></button>
+                        <button onClick={(e)=>{e.stopPropagation(); changeStatus('bpkad', item.id, 'left')}} className="p-1 border border-gray-200 rounded-md bg-white hover:bg-gray-50"><ChevronLeft size={14}/></button>
                         <div className={`w-[110px] py-1.5 flex items-center justify-center rounded-lg text-[10px] font-black uppercase shadow-sm ${statusColor(tempStatus[realIndex])}`}>
                           {tempStatus[realIndex]}
                         </div>
-                        <button onClick={(e)=>{e.stopPropagation(); changeStatus('bpkad', index, 'right')}} className="p-1 border border-gray-200 rounded-md bg-white hover:bg-gray-50"><ChevronRight size={14}/></button>
-                        <button onClick={(e)=>{e.stopPropagation(); confirmStatusChange('bpkad', index)}} className="p-1 bg-green-500 text-white rounded-md hover:bg-green-600 shadow-sm"><Check size={14}/></button>
+                        <button onClick={(e)=>{e.stopPropagation(); changeStatus('bpkad', item.id, 'right')}} className="p-1 border border-gray-200 rounded-md bg-white hover:bg-gray-50"><ChevronRight size={14}/></button>
+                        <button onClick={(e)=>{e.stopPropagation(); confirmStatusChange('bpkad', item.id)}} className="p-1 bg-green-500 text-white rounded-md hover:bg-green-600 shadow-sm"><Check size={14}/></button>
                       </div>
                     </td>
                   </tr>
@@ -356,13 +365,12 @@ return (
             <AgendaCard 
               key={item.id}
               item={item}
-              index={index}
               realIndex={startPemkot + index}
               type="pemkot"
               isSelected={selectedAgenda?.id === item.id}
               onClick={() => handleRowClick(item)}
-              onStatusChange={(dir: any) => changeStatus('pemkot', index, dir)}
-              onConfirmStatus={() => confirmStatusChange('pemkot', index)}
+              onStatusChange={(dir: any) => changeStatus('pemkot', item.id, dir)}
+              onConfirmStatus={() => confirmStatusChange('pemkot', item.id)}
               currentStatus={tempPemkotStatus[startPemkot + index]}
               statusColor={statusColor}
             />
@@ -410,12 +418,12 @@ return (
                     <td className="p-4 text-center font-medium text-xs text-gray-500">{item.dihadiri}</td>
                     <td className="p-4">
                       <div className="flex items-center justify-center gap-1.5 focus-within:ring-2">
-                        <button onClick={(e)=>{e.stopPropagation(); changeStatus('pemkot', index, 'left')}} className="p-1 border border-gray-200 rounded-md bg-white hover:bg-gray-50"><ChevronLeft size={14}/></button>
+                        <button onClick={(e)=>{e.stopPropagation(); changeStatus('pemkot', item.id, 'left')}} className="p-1 border border-gray-200 rounded-md bg-white hover:bg-gray-50"><ChevronLeft size={14}/></button>
                         <div className={`w-[110px] py-1.5 flex items-center justify-center rounded-lg text-[10px] font-black uppercase shadow-sm ${statusColor(tempPemkotStatus[realIndex])}`}>
                           {tempPemkotStatus[realIndex]}
                         </div>
-                        <button onClick={(e)=>{e.stopPropagation(); changeStatus('pemkot', index, 'right')}} className="p-1 border border-gray-200 rounded-md bg-white hover:bg-gray-50"><ChevronRight size={14}/></button>
-                        <button onClick={(e)=>{e.stopPropagation(); confirmStatusChange('pemkot', index)}} className="p-1 bg-green-500 text-white rounded-md hover:bg-green-600 shadow-sm"><Check size={14}/></button>
+                        <button onClick={(e)=>{e.stopPropagation(); changeStatus('pemkot', item.id, 'right')}} className="p-1 border border-gray-200 rounded-md bg-white hover:bg-gray-50"><ChevronRight size={14}/></button>
+                        <button onClick={(e)=>{e.stopPropagation(); confirmStatusChange('pemkot', item.id)}} className="p-1 bg-green-500 text-white rounded-md hover:bg-green-600 shadow-sm"><Check size={14}/></button>
                       </div>
                     </td>
                   </tr>
